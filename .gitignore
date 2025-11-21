@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Project outputs
+output/logs/
+output/models/
+output/trajectories/
+# Keep gifs, plots, and reports
+!output/gifs/
+!output/plots/
+!output/*.txt
+!output/*.csv
+
+# System
+.DS_Store
+Thumbs.db

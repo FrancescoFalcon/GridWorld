@@ -1,0 +1,11 @@
+=== Test Suite GridWorld ===
+Livello 1: success=1.00, steps=10.0, reward=1.00, key=4.0, key->goal=6.0
+Livello 2: success=1.00, steps=14.0, reward=-3.00, key=2.0, key->goal=12.0
+Livello 3: success=1.00, steps=14.0, reward=-13.00, key=4.0, key->goal=10.0
+Livello 4: success=1.00, steps=16.0, reward=-15.00, key=9.0, key->goal=7.0
+Livello 5: success=0.00, steps=242.0, reward=-242.00, key=nan, key->goal=nan
+Successo complessivo: 0.80
+Reward medio globale: -54.40 +/- 94.46
+Passi medi per la chiave: 4.8
+Passi medi chiave->porta->goal: 8.8
+Note fallimenti: success=80, timeout=20

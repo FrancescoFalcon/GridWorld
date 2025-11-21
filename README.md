@@ -84,3 +84,23 @@ Al termine del training saranno prodotti automaticamente:
 - `reward_curve.png`, `model_effectiveness.png`.
 - `training_logs.csv`, `test_suite_report.csv`, `test_suite_report.txt`, `effectiveness_report.txt`.
 - `best_episode.gif` e PNG delle traiettorie migliori.
+
+## Risultati Visivi
+
+Ecco i risultati dell'agente DQN addestrato sulla suite di livelli fissi.
+
+### Livello 1 (Successo)
+![Livello 1](output/gifs/level_1.gif)
+
+### Livello 2 (Successo - Oscillazione risolta)
+![Livello 2](output/gifs/level_2.gif)
+
+### Livello 3 (Successo)
+![Livello 3](output/gifs/level_3.gif)
+
+### Livello 4 (Successo)
+![Livello 4](output/gifs/level_4.gif)
+
+### Livello 5 (Fallimento - Timeout)
+![Livello 5](output/gifs/level_5.gif)
+*Nota: Il livello 5 rimane irrisolto a causa della complessità degli ostacoli e delle zone di rischio, portando l'agente al timeout.*

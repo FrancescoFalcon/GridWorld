@@ -84,7 +84,7 @@ class RandomFixedLevelWrapper(gym.Wrapper):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Training GridWorld")
     parser.add_argument("--algo", choices=["dqn", "ppo"], default="dqn")
-    parser.add_argument("--timesteps", type=int, default=200_000)
+    parser.add_argument("--timesteps", type=int, default=1_000_000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--grid-size", type=int, default=None)
     parser.add_argument("--difficulty", type=int, choices=range(1, 6), default=1)
@@ -137,8 +137,8 @@ def create_model(algo: str, env: DummyVecEnv, tensorboard: bool, seed: int) -> B
             env,
             learning_rate=5e-4,
             buffer_size=200_000,
-            exploration_fraction=0.5,
-            exploration_final_eps=0.15,
+            exploration_fraction=0.8,
+            exploration_final_eps=0.05,
             batch_size=256,
             tau=0.9,
             target_update_interval=10_000,

@@ -101,6 +101,6 @@ Ecco i risultati dell'agente DQN addestrato sulla suite di livelli fissi.
 ### Livello 4 (Successo)
 ![Livello 4](output/gifs/level_4.gif)
 
-### Livello 5 (Fallimento - Timeout)
+### Livello 5 (Successo - 100%)
 ![Livello 5](output/gifs/level_5.gif)
-*Nota: Il livello 5 rimane irrisolto a causa della complessità degli ostacoli e delle zone di rischio, portando l'agente al timeout.*
+*Nota: Il livello 5 è stato risolto con successo grazie a un training esteso (1M step) e una maggiore esplorazione.*

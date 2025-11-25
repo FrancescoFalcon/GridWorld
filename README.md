@@ -8,6 +8,21 @@ Progetto completo di Reinforcement Learning per un ambiente GridWorld personaliz
 - Pipeline RL (`agents/train.py`) che supporta DQN e PPO, logging CSV, curve di reward, heatmap visite, suite di test automatica, report di efficacia e GIF del miglior episodio.
 - Script di valutazione (`agents/evaluate.py`) con replay GIF, test suite ufficiale, comparazione multipla di modelli e generazione di report CSV/TXT.
 
+## Stato del Progetto (25/11/2025)
+
+### Risultati Attuali
+- **Suite Fissa (Livelli 1-5):** **100% Success Rate**. Il modello ha risolto stabilmente tutti i livelli di training.
+- **Generalizzazione (Livelli Mai Visti):** **60% Success Rate**. Il modello inizia a generalizzare su layout sconosciuti grazie al Mixed Training (recuperato da 0% dopo fine-tuning aggressivo).
+
+### Strategia di Training
+Attualmente utilizziamo una strategia **Mixed Training** per combattere il Catastrophic Forgetting:
+- **80% Procedurale:** Livelli generati casualmente per favorire la generalizzazione.
+- **20% Suite Fissa:** I 5 livelli "canonici" per garantire che le skill base non vengano dimenticate.
+
+### Prossimi Passi
+- Implementazione **Dueling DQN** per migliorare la stima del valore degli stati.
+- Tuning dell'esplorazione per superare l'80% di generalizzazione.
+
 ## Struttura del progetto
 ```
 project_root/
@@ -43,6 +58,8 @@ Esempi di comandi:
 python agents/train.py --algo dqn --timesteps 200000
 python agents/train.py --algo ppo --timesteps 300000 --train-on-procedural
 python agents/train.py --algo dqn --config levels/level_3.json --timesteps 150000
+# Mixed Training (Strategia Corrente):
+python agents/train.py --train-mixed --timesteps 1000000 --load-model output/models/dqn_final.zip
 ```
 Lo script salva automaticamente:
 - Modello finale in `output/models/<algo>_final.zip` (+ metadati JSON).

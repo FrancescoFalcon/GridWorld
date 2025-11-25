@@ -27,8 +27,10 @@ class GridWorldConfig:
     max_steps: Optional[int] = None
     door_penalty: float = -1.0
     risk_penalty: float = -3.0
-    step_penalty: float = -0.2
-    wall_penalty: float = -0.1
+    step_penalty: float = -0.1
+    wall_penalty: float = -0.5
+    repetition_penalty: float = -0.2
+    exploration_bonus: float = 0.1
     key_reward: float = 3.0
     goal_reward: float = 20.0
 
@@ -43,12 +45,14 @@ class GridWorldConfig:
             obstacles=[tuple(cell) for cell in data.get("obstacles", [])],
             risk_zones=[tuple(cell) for cell in data.get("risk_zones", [])],
             max_steps=data.get("max_steps"),
-            door_penalty=data.get("door_penalty", -2.0),
-            risk_penalty=data.get("risk_penalty", -5.0),
-            step_penalty=data.get("step_penalty", -1.0),
-            wall_penalty=data.get("wall_penalty", -1.0),
-            key_reward=data.get("key_reward", 1.0),
-            goal_reward=data.get("goal_reward", 10.0),
+            door_penalty=data.get("door_penalty", -1.0),
+            risk_penalty=data.get("risk_penalty", -3.0),
+            step_penalty=data.get("step_penalty", -0.15),
+            wall_penalty=data.get("wall_penalty", -0.3),
+            repetition_penalty=data.get("repetition_penalty", -0.2),
+            exploration_bonus=data.get("exploration_bonus", 0.05),
+            key_reward=data.get("key_reward", 3.0),
+            goal_reward=data.get("goal_reward", 20.0),
         )
 
     def to_dict(self) -> Dict:
@@ -65,6 +69,8 @@ class GridWorldConfig:
             "risk_penalty": self.risk_penalty,
             "step_penalty": self.step_penalty,
             "wall_penalty": self.wall_penalty,
+            "repetition_penalty": self.repetition_penalty,
+            "exploration_bonus": self.exploration_bonus,
             "key_reward": self.key_reward,
             "goal_reward": self.goal_reward,
         }
@@ -106,6 +112,8 @@ class GridWorldEnv(gym.Env):
         self.steps = 0
         self.max_steps = config.max_steps or (self.grid_size * self.grid_size * 2)
         self.visitation = np.zeros((self.grid_size, self.grid_size), dtype=np.int32)
+        self.recent_positions = []  # Sliding window for loop detection
+        self.visited_cells = set()  # Track first-time visits for exploration bonus
 
     # ---------------------- Gym API ----------------------
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None):
@@ -123,6 +131,8 @@ class GridWorldEnv(gym.Env):
         self.door_open = False
         self.steps = 0
         self.visitation = np.zeros((self.grid_size, self.grid_size), dtype=np.int32)
+        self.recent_positions = [self.agent_pos]
+        self.visited_cells = {self.agent_pos}
         obs = self._get_observation()
         info = self._extra_info()
         return obs, info
@@ -152,6 +162,18 @@ class GridWorldEnv(gym.Env):
             moved = True
 
         if moved:
+            # Track recent positions to penalize loops (3+ visits in window of 10)
+            self.recent_positions.append(self.agent_pos)
+            if len(self.recent_positions) > 10:
+                self.recent_positions.pop(0)
+
+            if self.recent_positions.count(self.agent_pos) >= 3:
+                reward += self.config.repetition_penalty
+
+            if self.agent_pos not in self.visited_cells:
+                reward += self.config.exploration_bonus
+                self.visited_cells.add(self.agent_pos)
+
             self.visitation[self.agent_pos] += 1
             if self.agent_pos == self.config.key and not self.has_key:
                 self.has_key = True

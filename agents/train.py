@@ -11,9 +11,13 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch as th
+import torch.nn as nn
 from stable_baselines3 import DQN, PPO
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.utils import get_linear_fn
 from stable_baselines3.common.vec_env import DummyVecEnv
 import gymnasium as gym
 
@@ -37,6 +41,35 @@ PLOTS_DIR = OUTPUT_DIR / "plots"
 TRAJ_DIR = OUTPUT_DIR / "trajectories"
 LEVEL_DIR = Path("levels")
 MAX_OBS_GRID = max(meta.grid_size for meta in DEFAULT_LEVEL_METADATA)
+
+
+class GridWorldCNN(BaseFeaturesExtractor):
+    """
+    Custom CNN for GridWorld.
+    Input shape: (6, H, W)
+    """
+
+    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 512):
+        super().__init__(observation_space, features_dim)
+        n_input_channels = observation_space.shape[0]
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+
+        # Compute shape by doing one forward pass
+        with th.no_grad():
+            n_flatten = self.cnn(th.as_tensor(observation_space.sample()[None]).float()).shape[1]
+
+        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        return self.linear(self.cnn(observations))
 
 
 class RewardLoggerCallback(BaseCallback):
@@ -81,6 +114,31 @@ class RandomFixedLevelWrapper(gym.Wrapper):
         return self.env.reset(options={"config": level_cfg}, **kwargs)
 
 
+class MixedWrapper(gym.Wrapper):
+    def __init__(self, env: GridWorldEnv, level_dir: Path, min_diff: int, max_diff: int, seed: Optional[int] = None, procedural_prob: float = 0.8):
+        super().__init__(env)
+        self.level_dir = level_dir
+        self.min_diff = min_diff
+        self.max_diff = max_diff
+        self.rng = np.random.default_rng(seed)
+        self.fixed_levels = [1, 2, 3, 4, 5]
+        self.procedural_prob = procedural_prob
+
+    def reset(self, **kwargs):
+        # Use procedural_prob to decide between procedural and fixed
+        if self.rng.random() < self.procedural_prob:
+            # Procedural
+            difficulty = int(self.rng.integers(self.min_diff, self.max_diff + 1))
+            level_cfg = generate_level(difficulty, seed=int(self.rng.integers(0, 1_000_000)))
+        else:
+            # Fixed Suite
+            level_idx = self.rng.choice(self.fixed_levels)
+            level_path = self.level_dir / f"level_{level_idx}.json"
+            level_cfg = utils.load_level_from_json(str(level_path))
+        
+        return self.env.reset(options={"config": level_cfg}, **kwargs)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Training GridWorld")
     parser.add_argument("--algo", choices=["dqn", "ppo"], default="dqn")
@@ -90,7 +148,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--difficulty", type=int, choices=range(1, 6), default=1)
     parser.add_argument("--train-on-procedural", action="store_true")
     parser.add_argument("--train-on-suite", action="store_true", help="Train on the fixed suite of levels 1-5")
+    parser.add_argument("--train-mixed", action="store_true", help="Train on both procedural and fixed suite (50/50)")
     parser.add_argument("--config", type=str, help="Percorso a livello custom")
+    parser.add_argument("--load-model", type=str, help="Percorso del modello da cui riprendere il training")
     parser.add_argument("--tensorboard", action="store_true")
     return parser.parse_args()
 
@@ -119,8 +179,11 @@ def make_env(args: argparse.Namespace, base_config: Dict) -> DummyVecEnv:
 
     def _init():
         env = GridWorldEnv(GridWorldConfig.from_dict(base_config), obs_grid_size=obs_grid)
-        if args.train_on_procedural:
-            env = ProceduralWrapper(env, 1, 3, seed=args.seed)
+        if args.train_mixed:
+            env = MixedWrapper(env, LEVEL_DIR, 1, 5, seed=args.seed, procedural_prob=0.8)
+        elif args.train_on_procedural:
+            # Genera livelli casuali da difficoltà 1 a 5 per massima generalizzazione
+            env = ProceduralWrapper(env, 1, 5, seed=args.seed)
         elif args.train_on_suite:
             env = RandomFixedLevelWrapper(env, LEVEL_DIR, [1, 2, 3, 4, 5], seed=args.seed)
         return env
@@ -128,33 +191,76 @@ def make_env(args: argparse.Namespace, base_config: Dict) -> DummyVecEnv:
     return DummyVecEnv([_init])
 
 
-def create_model(algo: str, env: DummyVecEnv, tensorboard: bool, seed: int) -> BaseAlgorithm:
-    common_kwargs = {"seed": seed, "verbose": 1}
+def create_model(algo: str, env: DummyVecEnv, tensorboard: bool, seed: int, load_path: Optional[str] = None, is_procedural: bool = False, is_mixed: bool = False) -> BaseAlgorithm:
+    device = "cuda" if th.cuda.is_available() else "cpu"
+    print(f"[Train] Using {device.upper()} for policy updates")
+    
+    if load_path:
+        print(f"[Train] Loading model from {load_path}")
+        if algo == "dqn":
+            model = DQN.load(load_path, env=env, device=device)
+        else:
+            model = PPO.load(load_path, env=env, device=device)
+        
+        if algo == "dqn":
+            if is_procedural or is_mixed:
+                # CONSOLIDATION PHASE: Moderate exploration to regain generalization
+                model.exploration_initial_eps = 0.15
+                model.exploration_final_eps = 0.02
+                model.exploration_fraction = 0.2
+                print("[Train] Adjusted exploration MODERATE for generalization recovery")
+            else:
+                # Lower exploration for fine-tuning on fixed suite
+                model.exploration_initial_eps = 0.2
+                model.exploration_final_eps = 0.02
+                model.exploration_fraction = 0.2
+                print("[Train] Adjusted exploration LOW for fine-tuning")
+            
+            # Force update of exploration schedule
+            model.exploration_schedule = get_linear_fn(
+                model.exploration_initial_eps,
+                model.exploration_final_eps,
+                model.exploration_fraction,
+            )
+        return model
+
+    common_kwargs = {"seed": seed, "verbose": 1, "device": device}
     tb_log = str(LOGS_DIR / "tensorboard") if tensorboard else None
+    
+    policy_kwargs = dict(
+        features_extractor_class=GridWorldCNN,
+        features_extractor_kwargs=dict(features_dim=512),
+    )
+
     if algo == "dqn":
         model = DQN(
-            "MlpPolicy",
+            "CnnPolicy",
             env,
-            learning_rate=5e-4,
-            buffer_size=200_000,
-            exploration_fraction=0.8,
-            exploration_final_eps=0.05,
-            batch_size=256,
-            tau=0.9,
-            target_update_interval=10_000,
+            learning_rate=1e-4,  # Increased learning rate
+            buffer_size=500_000,
+            exploration_fraction=0.9, # Explore for 90% of training
+            exploration_final_eps=0.05, # Slightly higher final epsilon
+            batch_size=128, # Increased batch size
+            tau=1.0,
+            target_update_interval=1000, # More frequent updates
+            train_freq=4,
+            gradient_steps=1,
             tensorboard_log=tb_log,
+            policy_kwargs=policy_kwargs,
             **common_kwargs,
         )
     else:
         model = PPO(
-            "MlpPolicy",
+            "CnnPolicy",
             env,
             learning_rate=3e-4,
             n_steps=2048,
-            batch_size=256,
+            batch_size=64,
+            n_epochs=10,
             gae_lambda=0.95,
             clip_range=0.2,
             tensorboard_log=tb_log,
+            policy_kwargs=policy_kwargs,
             **common_kwargs,
         )
     return model
@@ -266,7 +372,16 @@ def main() -> None:
     base_config = load_level_config(args)
     env = make_env(args, base_config)
     callback = RewardLoggerCallback()
-    model = create_model(args.algo, env, args.tensorboard, args.seed)
+    model = create_model(args.algo, env, args.tensorboard, args.seed, args.load_model, is_procedural=args.train_on_procedural, is_mixed=args.train_mixed)
+    
+    # If fine-tuning, maybe we want to reset the exploration schedule?
+    # For DQN, exploration_schedule is internal. 
+    # If we load a fully trained model, exploration might be low.
+    # Let's ensure we have some exploration for fine-tuning if it's DQN.
+    if args.load_model and args.algo == "dqn" and not args.train_on_procedural and not args.train_mixed:
+        # This block is now handled inside create_model, but keeping a safety check or logging is fine.
+        pass
+
     model.learn(total_timesteps=args.timesteps, callback=callback)
 
     model_path = MODELS_DIR / f"{args.algo}_final.zip"

@@ -100,10 +100,14 @@ def play_episode(
     failure_reason = "max_steps"
     frames: List[np.ndarray] = []
     trajectory: List[Tuple[int, int]] = [env.agent_pos]
+    action_counts = {}
 
     while not (done or truncated):
         action, _ = model.predict(obs, deterministic=deterministic)
-        obs, reward, done, truncated, info = env.step(int(action))
+        act_int = int(action)
+        action_counts[act_int] = action_counts.get(act_int, 0) + 1
+        
+        obs, reward, done, truncated, info = env.step(act_int)
         reward_sum += reward
         steps += 1
         if info.get("has_key") and steps_to_key is None:
@@ -118,6 +122,10 @@ def play_episode(
         if capture_frames:
             frames.append(_grid_to_image(env._symbolic_grid(), step=steps))
         trajectory.append(env.agent_pos)
+    
+    # Optional: print action distribution for debugging
+    # print(f"Actions: {action_counts}")
+    
     return {
         "success": done,
         "reward": reward_sum,
@@ -186,6 +194,56 @@ def save_replay_gif(
     utils.ensure_dir(Path(output_path).parent)
     imageio.mimsave(output_path, frames, duration=0.4)
     return output_path
+
+
+def run_custom_suite(
+    model_path: str,
+    level_files: List[Path],
+    algo: Optional[str] = None,
+    num_episodes: int = 10,
+    deterministic: bool = True,
+) -> Dict:
+    model, algorithm = load_model(model_path, algo)
+    all_records: List[Dict] = []
+    
+    print(f"Valutazione su {len(level_files)} livelli custom...")
+    for lvl_path in level_files:
+        try:
+            env = make_env(str(lvl_path))
+            # Extract difficulty/name from filename or json if possible, else use filename
+            lvl_name = lvl_path.stem
+            
+            for episode in range(num_episodes):
+                result = play_episode(model, env, deterministic=deterministic, capture_frames=False)
+                all_records.append(
+                    {
+                        "level": lvl_name,
+                        "episode": episode,
+                        "success": result["success"],
+                        "reward": result["reward"],
+                        "steps": result["steps"],
+                        "steps_to_key": result["steps_to_key"],
+                        "steps_key_to_goal": result["steps_key_to_goal"],
+                        "failure_reason": result["failure_reason"],
+                    }
+                )
+        except Exception as e:
+            print(f"Errore nel valutare {lvl_path}: {e}")
+
+    df = pd.DataFrame(all_records)
+    utils.ensure_dir(OUTPUT_DIR)
+    report_csv = OUTPUT_DIR / "custom_suite_report.csv"
+    df.to_csv(report_csv, index=False)
+    
+    # Simple summary
+    success_rate = df["success"].mean()
+    print(f"Successo complessivo suite custom: {success_rate:.2f}")
+    
+    return {
+        "records": df,
+        "success_rate": success_rate,
+        "report_csv": str(report_csv),
+    }
 
 
 def run_test_suite(
@@ -312,9 +370,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model_path", type=str, help="Percorso del modello SB3", nargs="?")
     parser.add_argument("--algo", type=str, choices=["dqn", "ppo"], help="Algoritmo del modello", nargs="?")
     parser.add_argument("--level", type=int, choices=range(1, 6), help="Livello singolo da valutare")
+    parser.add_argument("--level_file", type=str, help="Percorso file JSON livello specifico")
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--deterministic", action="store_true")
     parser.add_argument("--run_suite", action="store_true")
+    parser.add_argument("--test_folder", type=str, help="Cartella con livelli JSON per test custom")
     parser.add_argument("--compare_models", nargs="*", help="Confronta modelli molteplici")
     parser.add_argument("--save_gif", action="store_true")
     return parser.parse_args()
@@ -336,7 +396,18 @@ def main() -> None:
     if args.run_suite:
         run_test_suite(args.model_path, algo=algo)
 
-    if args.level:
+    if args.test_folder:
+        folder = Path(args.test_folder)
+        if folder.exists() and folder.is_dir():
+            levels = sorted(list(folder.glob("*.json")))
+            run_custom_suite(args.model_path, levels, algo=algo, num_episodes=args.episodes, deterministic=args.deterministic)
+        else:
+            print(f"Cartella non trovata: {args.test_folder}")
+        return
+
+    if args.level_file:
+        level_path = Path(args.level_file)
+    elif args.level:
         level_path = LEVEL_DIR / f"level_{args.level}.json"
     else:
         level_path = LEVEL_DIR / "level_1.json"

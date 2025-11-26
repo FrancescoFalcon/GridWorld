@@ -8,20 +8,21 @@ Progetto completo di Reinforcement Learning per un ambiente GridWorld personaliz
 - Pipeline RL (`agents/train.py`) che supporta DQN e PPO, logging CSV, curve di reward, heatmap visite, suite di test automatica, report di efficacia e GIF del miglior episodio.
 - Script di valutazione (`agents/evaluate.py`) con replay GIF, test suite ufficiale, comparazione multipla di modelli e generazione di report CSV/TXT.
 
-## Stato del Progetto (25/11/2025)
+## Stato del Progetto (26/11/2025)
 
 ### Risultati Attuali
-- **Suite Fissa (Livelli 1-5):** **100% Success Rate**. Il modello ha risolto stabilmente tutti i livelli di training.
-- **Generalizzazione (Livelli Mai Visti):** **60% Success Rate**. Il modello inizia a generalizzare su layout sconosciuti grazie al Mixed Training (recuperato da 0% dopo fine-tuning aggressivo).
+- **Suite Fissa (Livelli 1-5):** **100% Success Rate**. Il modello ha risolto perfettamente tutti i livelli di training.
+- **Generalizzazione (Livelli Mai Visti):** **90% Success Rate**. Su un set di 10 livelli procedurali mai visti (2 per ogni difficoltà), l'agente ha risolto 9 livelli su 10, fallendo solo in uno scenario di difficoltà 4 particolarmente complesso.
 
-### Strategia di Training
-Attualmente utilizziamo una strategia **Mixed Training** per combattere il Catastrophic Forgetting:
-- **80% Procedurale:** Livelli generati casualmente per favorire la generalizzazione.
-- **20% Suite Fissa:** I 5 livelli "canonici" per garantire che le skill base non vengano dimenticate.
+### Configurazione Vincente
+- **Algoritmo:** Dueling DQN con Frame Stacking (4 frame).
+- **Ambiente:** Griglia 8x8, Penalità ripetizione -1.0, Reward Chiave +10.0, Reward Goal +50.0.
+- **Training:** 5 Milioni di timesteps con strategia Mixed (80% procedurale / 20% fisso).
+- **Hardware:** Training accelerato su GPU (CUDA) con generazione dati parallela su CPU (12 envs).
 
 ### Prossimi Passi
-- Implementazione **Dueling DQN** per migliorare la stima del valore degli stati.
-- Tuning dell'esplorazione per superare l'80% di generalizzazione.
+- Analisi del fallimento sul livello procedurale "Test Level 7" (Difficoltà 4).
+- Possibile estensione a griglie 10x10.
 
 ## Struttura del progetto
 ```
